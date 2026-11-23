@@ -77,7 +77,14 @@ The emotion models are given the reference response's true emotion at test time 
 
 ## Results
 
-*To be added after running the notebook.*
+See the README for the full tables. In short:
+
+- Both emotion models improve emotion macro-F1 by about 9–10 points over the baseline (bootstrap intervals clear of zero), reaching the level the classifier gives the real human replies.
+- EmoToken and EmoFusion are not reliably different at following the emotion (+0.5 points for EmoFusion, interval includes zero).
+- EmoToken keeps the best overlap with the reference replies (BLEU-4 3.05 vs 2.73 for the baseline); EmoFusion has the lowest overlap (1.85) but the most varied wording.
+- Generating EmoToken without the `<s>` it saw in training removes almost all of its gain (macro-F1 19.2 vs 28.0), so matching the training and generation layout is essential for the token approach.
+
+**Answer to the question:** where the emotion enters the model matters less for following it than expected. Both positions work about equally well. The decoder token is the better choice here because it follows the emotion without reducing overlap with the reference, as long as generation uses the same decoder layout as training.
 
 ## Limitations
 
