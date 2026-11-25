@@ -7,41 +7,44 @@ Dialogue models usually produce replies that make sense in context but ignore em
 
 Both are compared with a **baseline** that gets no emotion information. All three are trained from the same pretrained weights, on the same data, and evaluated on the same test set.
 
+![Emotion-conditioned response architecture](emocon.png)
+
 For the architecture, design choices and limitations, see [DESIGN.md](DESIGN.md).
+
+The project started as a course project and was rebuilt from scratch with a corrected evaluation.
 
 ## Results
 
-All models are evaluated on the same 6,740 test examples (the official DailyDialog test dialogues). Emotion macro-F1 is the main metric; accuracy is shown for completeness, but it is dominated by the neutral class (see *Always neutral*).
+All models are evaluated on the same 6,740 test examples (the official DailyDialog test dialogues). Emotion macro-F1 is the main metric; accuracy is shown for completeness, but it is dominated by the neutral class (see _Always neutral_).
 
-| Model | BLEU-4 | ROUGE-L | METEOR | Distinct-2 | Emotion macro-F1 (7) | Emotion macro-F1 (3) | Emotion acc (7) |
-|---|---|---|---|---|---|---|---|
-| Baseline | 2.73 | 15.89 | 15.39 | 18.66 | 18.60 | 38.66 | 54.69 |
-| **EmoToken** | **3.05** | **16.57** | **16.20** | 19.11 | 27.95 | 47.54 | 63.18 |
-| EmoToken (no `<s>` in prompt) | 2.77 | 15.85 | 15.37 | 18.89 | 19.23 | 38.90 | 52.92 |
-| **EmoFusion** | 1.85 | 15.24 | 14.21 | **19.42** | **28.44** | **50.17** | 65.16 |
-| *Human reference* | – | – | – | – | *28.38* | *49.02* | *63.74* |
-| *Always neutral* | – | – | – | – | *12.78* | *29.82* | *80.92* |
+| Model                                  | BLEU-4   | ROUGE-L   | METEOR    | Distinct-2 | Emotion macro-F1 (7) | Emotion macro-F1 (3) | Emotion acc (7) |
+| -------------------------------------- | -------- | --------- | --------- | ---------- | -------------------- | -------------------- | --------------- |
+| Baseline                               | 2.73     | 15.89     | 15.39     | 18.66      | 18.60                | 38.66                | 54.69           |
+| **EmoToken**                           | **3.05** | **16.57** | **16.20** | 19.11      | 27.95                | 47.54                | 63.18           |
+| **EmoFusion**                          | 1.85     | 15.24     | 14.21     | **19.42**  | **28.44**            | **50.17**            | 65.16           |
+| EmoToken, mismatched prompt (ablation) | 2.77     | 15.85     | 15.37     | 18.89      | 19.23                | 38.90                | 52.92           |
+| _Human reference_                      | –        | –         | –         | –          | _28.38_              | _49.02_              | _63.74_         |
+| _Always neutral_                       | –        | –         | –         | –          | _12.78_              | _29.82_              | _80.92_         |
 
 Paired bootstrap on 7-class emotion macro-F1 (1,000 resamples):
 
-| Comparison | Difference (pts) | 95% CI |
-|---|---|---|
-| EmoToken vs Baseline | +9.33 | 7.72 to 11.05 |
-| EmoFusion vs Baseline | +9.82 | 7.88 to 11.60 |
-| EmoFusion vs EmoToken | +0.49 | −1.28 to 2.22 |
-| EmoToken vs EmoToken (no `<s>` in prompt) | +8.69 | 7.42 to 10.19 |
+| Comparison                                         | Difference (pts) | 95% CI        |
+| -------------------------------------------------- | ---------------- | ------------- |
+| EmoToken vs Baseline                               | +9.33            | 7.72 to 11.05 |
+| EmoFusion vs Baseline                              | +9.82            | 7.88 to 11.60 |
+| EmoFusion vs EmoToken                              | +0.49            | −1.28 to 2.22 |
+| EmoToken vs EmoToken, mismatched prompt (ablation) | +8.69            | 7.42 to 10.19 |
 
 **Findings**
 
-1. **Both ways of adding emotion work.** EmoToken and EmoFusion raise emotion macro-F1 by about 9–10 points over the baseline, and the bootstrap intervals are well clear of zero.
-2. **Neither method is clearly better at following the emotion.** EmoFusion is 0.5 points ahead of EmoToken, but the interval includes zero, so the difference is not reliable.
-3. **They differ in text quality.** EmoToken scores the highest BLEU, ROUGE-L and METEOR, slightly above the baseline. EmoFusion has the lowest overlap with the reference replies but the most varied wording (highest Distinct-2).
-4. **Both reach the human reference.** Their emotion macro-F1 (about 28) matches what the classifier gives the real human replies, so on this metric they follow the target emotion about as well as the classifier can measure.
-5. **The decoder prompt matters.** Generating EmoToken without the `<s>` it saw in training drops it back to the baseline's level (19.2 vs 18.6). Matching the training and generation layout accounts for nearly all of EmoToken's gain.
-6. **Accuracy is misleading here.** Labelling every reply neutral gives 80.9% accuracy, higher than any model, but only 12.8 macro-F1.
-7. **Sentiment coherence drops slightly** for the emotion models (51–52% vs 53%), which is expected: they follow the target emotion rather than mirroring the last turn's sentiment.
+1. Both emotion models improve emotion macro-F1 by about 9–10 points over the baseline, and the bootstrap intervals exclude zero.
+2. EmoToken and EmoFusion are not significantly different at following the target emotion.
+3. EmoToken has the highest BLEU-4, ROUGE-L and METEOR. EmoFusion has the lowest overlap with the reference replies and the highest Distinct-2.
+4. Both emotion models reach the macro-F1 of the human reference (the real replies scored by the same classifier), which is the practical ceiling of this metric.
+5. Ablation: generating EmoToken without the `<s>` token used in training reduces its macro-F1 to the baseline's level.
+6. Labelling every reply neutral gives 80.9% accuracy but 12.8 macro-F1, so macro-F1 is used as the main metric.
 
-These results come from one training run per model and the oracle setting, where the target emotion is given (see Limitations). The text-quality differences were not significance-tested.
+Absolute BLEU and ROUGE scores are low, as is typical for open-ended dialogue, where many replies are valid but each is compared with a single reference. These results come from one training run per model, with the target emotion given to the emotion models (see DESIGN.md).
 
 ## How to run
 
@@ -67,17 +70,17 @@ MyDrive/EmoCon/
 
 ## Setup
 
-| | |
-|---|---|
-| Model | `facebook/bart-base` (139M parameters), full fine-tuning |
-| Data | DailyDialog, official train / validation / test split (11,118 / 1,000 / 1,000 dialogues) |
-| Examples | Context of up to 3 previous turns; target emotion = the response turn's label |
-| Training | 3 epochs, AdamW (lr 3e-5), effective batch 32, mixed precision, best epoch by validation loss |
-| Class imbalance | Square-root inverse-frequency weights: on the emotion token (EmoToken) or per example (EmoFusion) |
-| Generation | Beam search, 4 beams, no repeated 3-grams |
-| Emotion classifier | `j-hartmann/emotion-english-distilroberta-base` |
-| Main metric | Emotion macro-F1, with a paired bootstrap for significance |
-| Hardware | Google Colab, T4 GPU |
+|                    |                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| Model              | `facebook/bart-base` (139M parameters), full fine-tuning                                          |
+| Data               | DailyDialog, official train / validation / test split (11,118 / 1,000 / 1,000 dialogues)          |
+| Examples           | Context of up to 3 previous turns; target emotion = the response turn's label                     |
+| Training           | 3 epochs, AdamW (lr 3e-5), effective batch 32, mixed precision, best epoch by validation loss     |
+| Class imbalance    | Square-root inverse-frequency weights: on the emotion token (EmoToken) or per example (EmoFusion) |
+| Generation         | Beam search, 4 beams, no repeated 3-grams                                                         |
+| Emotion classifier | `j-hartmann/emotion-english-distilroberta-base`                                                   |
+| Main metric        | Emotion macro-F1, with a paired bootstrap for significance                                        |
+| Hardware           | Google Colab, T4 GPU                                                                              |
 
 ## Repository
 

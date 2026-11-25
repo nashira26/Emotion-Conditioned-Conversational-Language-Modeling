@@ -6,40 +6,15 @@ If a dialogue model is told which emotion its reply should have, does it follow 
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph Data["Data preparation"]
-        DD["DailyDialog<br/>official train / validation / test dialogues<br/>emotion label for every turn"]
-        PAIRS["(context, response, emotion) examples<br/>context = up to 3 previous turns joined with [SEP]<br/>emotion = label of the response turn"]
-        DD --> PAIRS
-    end
-
-    subgraph Models["Three models, each fine-tuned from facebook/bart-base"]
-        direction LR
-        B["Baseline<br/>context → response<br/>no emotion input"]
-        T["EmoToken<br/>7 new tokens, e.g. [EMOTION-HAPPINESS]<br/>target: &lt;s&gt; [EMOTION-X] response<br/>weighted loss on the emotion token"]
-        F["EmoFusion<br/>emotion embedding (128-d) → 768-d<br/>added to every encoder input embedding<br/>weighted loss per example"]
-    end
-
-    subgraph Eval["Evaluation on the same test set"]
-        TXT["Text quality<br/>BLEU-4, ROUGE-L, METEOR, Distinct-1/2"]
-        EMO["Emotion alignment<br/>classifier labels each reply<br/>macro-F1 and accuracy, 7 and 3 classes"]
-        REF["Reference rows<br/>always neutral, human reference"]
-        SIG["Paired bootstrap<br/>are differences larger than chance?"]
-    end
-
-    PAIRS --> B & T & F
-    B & T & F --> TXT & EMO
-    EMO --> REF & SIG
-```
+![Emotion-conditioned response architecture](emocon.png)
 
 ## How emotion is given to each model
 
-| Model | Training | Generation |
-|---|---|---|
-| Baseline | Context → response | Context only |
-| EmoToken | Target is `<s> [EMOTION-X] response </s>`, so after BART's shift-right the decoder sees `</s> <s> [EMOTION-X] …` | Decoder starts from the prompt `</s> <s> [EMOTION-X]`, the same layout as in training |
-| EmoFusion | A learned emotion vector is added to every token embedding of the encoder input | The same vector is added before generation |
+| Model     | Training                                                                                                         | Generation                                                                            |
+| --------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Baseline  | Context → response                                                                                               | Context only                                                                          |
+| EmoToken  | Target is `<s> [EMOTION-X] response </s>`, so after BART's shift-right the decoder sees `</s> <s> [EMOTION-X] …` | Decoder starts from the prompt `</s> <s> [EMOTION-X]`, the same layout as in training |
+| EmoFusion | A learned emotion vector is added to every token embedding of the encoder input                                  | The same vector is added before generation                                            |
 
 The emotion models are given the reference response's true emotion at test time (the **oracle setting**). This tests whether a model can follow an emotion it is given. It does not test whether it can choose the right emotion, which a real system would need as a separate step: an angry user usually needs a calm reply, not an angry one.
 
@@ -49,21 +24,25 @@ The emotion models are given the reference response's true emotion at test time 
 
 **One data pipeline for all models.** The same examples, tokenization limits and test set are used for all three models, so the comparison is like-for-like.
 
-**Matching EmoToken's training and generation.** Generation starts from exactly the decoder sequence the model saw in training. An extra row, *EmoToken (no `<s>` in prompt)*, generates from `</s> [EMOTION-X]` instead, to measure how much this matters.
+**Matching EmoToken's training and generation.** Generation starts from exactly the decoder sequence the model saw in training. An extra row, _EmoToken (no `<s>` in prompt)_, generates from `</s> [EMOTION-X]` instead, to measure how much this matters.
 
 **Class weighting.** About 80% of responses are neutral. Each emotion gets a weight equal to the square root of its inverse frequency, scaled so the average weight over training examples is 1.
+
 - The square root keeps the weighting moderate. With plain inverse frequency, a neutral example would count roughly 50 times less than a rare one, and the model would effectively learn from a small part of the data.
 - EmoToken applies the weight to the loss on the emotion token. EmoFusion multiplies each example's loss by its own weight.
 - Weighting per example avoids a problem with weighting per batch: an all-neutral batch would barely update the model.
 - Validation loss is unweighted, so all three models' validation losses are on the same scale.
 
 **Macro-F1 as the main metric.** With most responses neutral, a model that only produces neutral replies gets high accuracy. Macro-F1 averages over emotions, so rare emotions count equally. Two reference rows make the numbers easier to read:
-- *Always neutral*: the score if every reply is labelled neutral.
-- *Human reference*: the real replies scored by the same classifier, showing how often the classifier agrees with DailyDialog's labels. This is a practical ceiling for the metric.
+
+- _Always neutral_: the score if every reply is labelled neutral.
+- _Human reference_: the real replies scored by the same classifier, showing how often the classifier agrees with DailyDialog's labels. This is a practical ceiling for the metric.
 
 **Paired bootstrap.** Differences between models are checked by resampling the test set 1,000 times. If the 95% interval of a difference includes 0, it is not reported as a real difference.
 
 **Resumable training.** Each model saves a resume file after every epoch, so a Colab disconnect costs at most one epoch.
+
+**How the scores should be read.** BLEU, ROUGE-L and METEOR compare each reply with one human reply, while many replies would be acceptable, so their absolute values are low and they are used only to compare models. Emotion macro-F1 is limited by how often the classifier agrees with DailyDialog's labels: the human reference scores 28.4, so that is the practical ceiling. The meaningful results are the differences between models, checked with the bootstrap.
 
 ## Training setup
 
@@ -82,7 +61,8 @@ See the README for the full tables. In short:
 - Both emotion models improve emotion macro-F1 by about 9–10 points over the baseline (bootstrap intervals clear of zero), reaching the level the classifier gives the real human replies.
 - EmoToken and EmoFusion are not reliably different at following the emotion (+0.5 points for EmoFusion, interval includes zero).
 - EmoToken keeps the best overlap with the reference replies (BLEU-4 3.05 vs 2.73 for the baseline); EmoFusion has the lowest overlap (1.85) but the most varied wording.
-- Generating EmoToken without the `<s>` it saw in training removes almost all of its gain (macro-F1 19.2 vs 28.0), so matching the training and generation layout is essential for the token approach.
+- An ablation that generates EmoToken without the `<s>` token used in training drops its macro-F1 to 19.2, the baseline's level. Matching the training layout at inference is standard practice; the ablation shows the size of the effect, and it explains why EmoToken scored below the baseline in the original course project.
+- Sentiment coherence drops slightly for the emotion models (51–52% vs 53%), as expected: they follow the target emotion rather than mirroring the last turn's sentiment.
 
 **Answer to the question:** where the emotion enters the model matters less for following it than expected. Both positions work about equally well. The decoder token is the better choice here because it follows the emotion without reducing overlap with the reference, as long as generation uses the same decoder layout as training.
 
@@ -100,3 +80,4 @@ See the README for the full tables. In short:
 - Two or three seeds per model.
 - A small human evaluation of emotional appropriateness and fluency.
 - Compare with prompting an instruction-tuned LLM to reply with a given emotion.
+- Apply the same conditioning and evaluation approach to fine-tuning an instruction-tuned LLM, where matching the training format at inference corresponds to using the correct chat template.
